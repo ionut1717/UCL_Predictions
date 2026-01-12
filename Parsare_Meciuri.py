@@ -6,27 +6,29 @@ def parse_and_calculate_ratings(file_path):
     print(f"Procesăm datele din: {file_path}...")
     
     try:
+        # Citim CSV-ul salvat ca UTF-8 din Excel
         df = pd.read_csv(file_path, encoding='utf-8-sig', sep=None, engine='python', quoting=csv.QUOTE_MINIMAL)
         
+        # Păstrăm doar primele 5 coloane relevante
         df = df.iloc[:, :5]
         df.columns = ['Home', 'xG_Home', 'Score', 'xG_Away', 'Away']
     except Exception as e:
         print(f"Eroare la citire: {e}")
         return None
 
-    # Curățare date: eliminăm rândurile goale și convertim xG
+    # Curățare date
     df = df.dropna(subset=['Home', 'Away'])
     df['xG_Home'] = df['xG_Home'].astype(str).str.replace(',', '.').astype(float)
     df['xG_Away'] = df['xG_Away'].astype(str).str.replace(',', '.').astype(float)
     for col in ['Home', 'Away']: df[col] = df[col].astype(str).str.strip()
 
-    # 1. CALCULUL CLASAMENTULUI (Criterii FIFA)
+    # 1. CALCULUL CLASAMENTULUI
     stats = {}
     for _, row in df.iterrows():
         h, a = row['Home'], row['Away']
         xg_h, xg_a = row['xG_Home'], row['xG_Away']
         try:
-            gh, ga = map(int, str(row['Score']).split('-'))
+            gh, ga = map(int, str(row['Score']).split('–').replace('-', '-').split('-')) # Tratăm ambele tipuri de cratimă
         except: gh, ga = 0, 0
 
         for t in [h, a]:
@@ -42,20 +44,34 @@ def parse_and_calculate_ratings(file_path):
         elif ga > gh: stats[a]['pts'] += 3; stats[a]['wins'] += 1
         else: stats[h]['pts'] += 1; stats[a]['pts'] += 1
 
-    # Sortăm clasamentul
     standings = sorted(stats.keys(), key=lambda x: (stats[x]['pts'], stats[x]['gd'], stats[x]['gs'], stats[x]['wins']), reverse=True)
     
-    # 2. CALCUL RATINGS (Classic vs Adjusted)
+    # 2. CALCUL RATINGS CU REGRESIE CĂTRE MEDIE (Smoothing)
     league_avg_xg = (df['xG_Home'].mean() + df['xG_Away'].mean()) / 2
-    classic = {t: {'att': np.mean(stats[t]['xg_list']) / league_avg_xg, 
-                   'def': np.mean(stats[t]['xga_list']) / league_avg_xg} for t in stats}
+    
+    # Adăugăm 2 meciuri ipotetice cu performanță medie fiecărei echipe
+    # Asta previne ca 21.8 xG-ul lui Bayern să îi facă invincibili
+    smoothing_mp = 2 
+
+    classic = {}
+    for t in stats:
+        # Formula: (Sumă xG + (2 * medie_ligă)) / (8 meciuri + 2)
+        adj_xg_avg = (sum(stats[t]['xg_list']) + (smoothing_mp * league_avg_xg)) / (len(stats[t]['xg_list']) + smoothing_mp)
+        adj_xga_avg = (sum(stats[t]['xga_list']) + (smoothing_mp * league_avg_xg)) / (len(stats[t]['xga_list']) + smoothing_mp)
+        
+        classic[t] = {
+            'att': adj_xg_avg / league_avg_xg,
+            'def': adj_xga_avg / league_avg_xg
+        }
     
     adjusted = {}
     for t in stats:
         avg_opp_def = np.mean([classic[opp]['def'] for opp in stats[t]['opp']])
         avg_opp_att = np.mean([classic[opp]['att'] for opp in stats[t]['opp']])
-        adjusted[t] = {'attack_rating': classic[t]['att'] / avg_opp_def, 
-                       'defense_rating': classic[t]['def'] / avg_opp_att}
+        adjusted[t] = {
+            'attack_rating': classic[t]['att'] / avg_opp_def,
+            'defense_rating': classic[t]['def'] / avg_opp_att
+        }
 
     return {'standings': standings, 'classic': classic, 'adjusted': adjusted, 
             'league_avg': league_avg_xg, 'home_adv': df['xG_Home'].mean() / df['xG_Away'].mean()}
