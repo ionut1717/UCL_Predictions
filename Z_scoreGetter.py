@@ -1,21 +1,5 @@
 def get_z_score(confidence_level):
-    """
-    Calculează Z-Score pentru un nivel de încredere dat.
-    
-    Formula:
-    1. Alpha (eroarea) = 1 - confidence_level
-    2. Deoarece distribuția e simetrică (două cozi), ne interesează 1 - (alpha / 2)
-    3. Folosim funcția PPF (Percent Point Function) pentru a găsi Z.
-    
-    Args:
-        confidence_level (float): Valoare între 0 și 1 (ex: 0.95 pentru 95%)
-        
-    Returns:
-        float: Valoarea Z-Score (ex: 1.96)
-    """
-    
-    # 1. Verificare rapidă pentru valorile standard (fără a importa biblioteci grele)
-    # Asta face codul foarte rapid pentru cazurile uzuale.
+
     standard_map = {
         0.90: 1.645,
         0.95: 1.960,
